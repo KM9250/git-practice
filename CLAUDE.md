@@ -4,73 +4,151 @@ This file provides guidance for AI assistants working in this repository.
 
 ## Repository Overview
 
-This is a minimal **git practice repository** (`KM9250/git-practice`). It currently serves as a sandbox for learning and experimenting with Git workflows.
+**「仕事効率版・精神と時の部屋」** — a self-hosted VR work-efficiency environment
+for seated PC VR, consisting of three modes: Recovery / Focus / Reflection.
 
-## Current State
+Repository: `KM9250/git-practice`
 
-The repository is in an early/bare state with only two files:
-
-| File | Description |
-|------|-------------|
-| `README.md` | Contains placeholder text (`hogehoge`) |
-| `.gitignore` | Empty file, no ignore rules defined |
-
-There is one commit in the history:
-```
-fde0b4b created .gitignore README.md
-```
+---
 
 ## Repository Structure
 
 ```
 git-practice/
-├── .git/               # Git metadata (do not modify directly)
-├── .gitignore          # Currently empty
-├── README.md           # Placeholder content
-└── CLAUDE.md           # This file
+├── docs/
+│   └── recovery_mode_spec.md   # Full Recovery mode spec (data schemas, API, AI logic)
+│
+├── backend/                    # Python + FastAPI — Recovery mode AI API
+│   ├── app/
+│   │   ├── main.py             # FastAPI app entry point (uvicorn app.main:app)
+│   │   ├── schemas.py          # Pydantic v2 models (UserState, SessionSummary, …)
+│   │   ├── ai_logic.py         # AI provider abstraction + mock/OpenAI/Claude impls
+│   │   ├── storage.py          # JSONL session log (data/sessions.jsonl)
+│   │   └── routers/
+│   │       └── recovery.py     # /recovery/start, /recovery/end, /recovery/sessions
+│   ├── tests/
+│   │   ├── test_ai_logic.py    # Unit tests: compute_summary, MockProvider
+│   │   └── test_api.py         # Integration tests via FastAPI TestClient
+│   ├── pyproject.toml
+│   ├── requirements.txt
+│   └── .gitignore
+│
+├── VR-Room/                    # Unity (URP + OpenXR) VR client — C# scripts
+│   ├── Assets/Scripts/
+│   │   ├── Core/               # ModeManager, SessionManager, VRCameraRig
+│   │   ├── Modes/              # RecoveryMode, FocusMode, ReflectionMode
+│   │   ├── UI/                 # BreathingGuide, TaskBoard, TimerHUD, AIAvatarUI
+│   │   ├── Audio/              # AmbientAudioManager
+│   │   └── Integration/        # AIVoiceHook, VRDesktopBridge, ExternalDataReceiver
+│   └── Docs/
+│       └── DESIGN.md           # Scene layout, colour palettes, coordinate specs
+│
+├── .gitignore
+├── README.md
+└── CLAUDE.md                   # This file
 ```
+
+---
+
+## Backend — Development Commands
+
+```bash
+cd backend
+
+# Install dependencies
+pip install -e ".[dev]"
+# or: pip install -r requirements.txt
+
+# Run the API server (port 5000, hot-reload)
+uvicorn app.main:app --reload --port 5000
+
+# Run all tests (mock provider, no external API key needed)
+pytest
+
+# Run tests with coverage
+pytest --cov=app --cov-report=term-missing
+
+# Use a real AI provider
+AI_PROVIDER=claude uvicorn app.main:app --reload --port 5000
+AI_PROVIDER=openai uvicorn app.main:app --reload --port 5000
+```
+
+### Key API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/recovery/start` | Session start → AI comment |
+| `POST` | `/recovery/end` | Session end → delta + efficiency score + feedback |
+| `GET` | `/recovery/sessions` | List all persisted sessions |
+| `GET` | `/recovery/sessions/{id}` | Get one session |
+| `GET` | `/session-data` | Unity `ExternalDataReceiver.cs` compatibility endpoint |
+| `GET` | `/health` | Liveness check |
+
+### AI Provider Selection
+
+Set `AI_PROVIDER` environment variable:
+
+| Value | Description |
+|-------|-------------|
+| `mock` (default) | Rule-based, deterministic, no API key needed |
+| `openai` | GPT-4o-mini via `OPENAI_API_KEY` |
+| `claude` | Claude Haiku via `ANTHROPIC_API_KEY` |
+
+To add a new provider: implement the `AIProvider` protocol in `ai_logic.py`
+and register it in `get_provider()`.
+
+---
+
+## Unity VR Client
+
+See `VR-Room/Docs/DESIGN.md` for full setup instructions.
+
+**Key script relationships:**
+
+```
+ModeManager.SwitchTo(RoomMode)
+  → activates/deactivates RecoveryRoot / FocusRoot / ReflectionRoot
+  → fires onModeChanged event
+      → SessionManager.OnModeChanged()    (records segment)
+      → RecoveryMode.OnEnable/Disable     (lighting, breathing, audio)
+      → AIVoiceHook.Speak(Cue, Mode)      (TTS hook)
+```
+
+**Connecting Unity to the backend:**
+
+`ExternalDataReceiver.cs` polls `http://localhost:5000/session-data` every 10 s.
+For full session tracking, call `/recovery/start` and `/recovery/end` from a
+companion script or from a custom `AIVoiceHook` backend implementation.
+
+---
 
 ## Branch Conventions
 
-- `master` — default/main branch
-- `claude/<description>-<session-id>` — branches used by AI assistants for scoped changes
+- `master` — default branch
+- `claude/<description>-<session-id>` — AI assistant work branches
 
 Active branches:
 - `master`
 - `claude/add-claude-documentation-AhjUq` (current)
 
-## Development Workflow
+---
 
-Since this is a practice repo with no build system, test suite, or dependencies, the workflow is pure Git:
+## Git Workflow
 
-1. **Create a branch** for your changes off `master`
-2. **Make changes** to files
-3. **Commit** with a clear, descriptive message
-4. **Push** with `git push -u origin <branch-name>`
-5. **Open a PR** when the work is ready for review
+1. Branch off `master`
+2. Make changes
+3. `git push -u origin <branch-name>`
+4. Open a PR when ready
 
-## Git Practices
+Commit messages should be concise and describe *what* changed and *why*.
+Never force-push to `master`.
 
-- Commit messages should be concise and describe *what* changed and *why*
-- Branch names follow the pattern: `claude/<feature-description>-<session-id>` for AI-driven work
-- Never force-push to `master`
-- The `.gitignore` is currently empty — add entries here when the repo grows to include build artifacts, editor files, secrets, etc.
-
-## No Build / Test System
-
-This repository has **no build system, test runner, linter, or package manager** configured. There are no commands to run for setup, testing, or building.
-
-If these are added in the future, document them here:
-
-```bash
-# Placeholder — update when applicable
-# npm install     # install dependencies
-# npm test        # run tests
-# npm run build   # build project
-```
+---
 
 ## Notes for AI Assistants
 
-- This repo is intentionally minimal; avoid over-engineering changes
-- Update this `CLAUDE.md` whenever significant new files, tooling, or conventions are introduced
-- Keep the `README.md` updated with human-readable project context when the project purpose becomes clearer
+- **Backend changes**: always run `pytest` before committing.
+- **Schema changes**: update both `schemas.py` and `docs/recovery_mode_spec.md`.
+- **New AI providers**: implement the `AIProvider` protocol; do not change `MockProvider` behaviour (tests depend on it).
+- **Unity scripts**: C# only, no Unity Editor serialisation in this repo — test logic in isolation where possible.
+- Keep this `CLAUDE.md` updated when new top-level directories, commands, or conventions are added.
